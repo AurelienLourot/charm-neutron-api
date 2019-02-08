@@ -54,6 +54,8 @@ requires:
     interface: midonet
   external-dns:
     interface: designate
+  infoblox-neutron:
+    interface: infoblox
   certificates:
     interface: tls-certificates
 peers:

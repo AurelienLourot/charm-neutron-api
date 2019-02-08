@@ -86,6 +86,7 @@ from neutron_api_utils import (
     pause_unit_helper,
     resume_unit_helper,
     remove_old_packages,
+    is_db_initialised,
 )
 from neutron_api_context import (
     get_dns_domain,
@@ -652,6 +653,22 @@ def midonet_changed():
             'external-dns-relation-broken')
 @restart_on_change(restart_map())
 def designate_changed():
+    CONFIGS.write_all()
+
+
+@hooks.hook('infoblox-neutron-relation-changed')
+@restart_on_change(restart_map())
+def infoblox_changed():
+    if is_db_initialised():
+        migrate_neutron_database(upgrade=True)
+    CONFIGS.write(NEUTRON_CONF)
+    service_reload('neutron-server')
+
+
+@hooks.hook('infoblox-neutron-relation-departed',
+            'infoblox-neutron-relation-broken')
+@restart_on_change(restart_map())
+def infoblox_departed():
     CONFIGS.write_all()
 
 
