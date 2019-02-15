@@ -139,7 +139,7 @@ hooks = Hooks()
 CONFIGS = register_configs()
 
 
-def conditional_neutron_migration():
+def conditional_neutron_migration(db_upgrade=False):
     """Initialise neutron database if not already done so.
 
     Runs neutron-manage to initialize a new database or migrate existing and
@@ -162,7 +162,7 @@ def conditional_neutron_migration():
             'allowed_units or this unit is not present')
         return
 
-    migrate_neutron_database()
+    migrate_neutron_database(upgrade=db_upgrade)
 
 
 def configure_https():
@@ -660,7 +660,7 @@ def designate_changed():
 @restart_on_change(restart_map())
 def infoblox_changed():
     if is_db_initialised():
-        migrate_neutron_database(upgrade=True)
+        conditional_neutron_migration(db_upgrade=True)
     CONFIGS.write(NEUTRON_CONF)
     service_reload('neutron-server')
 
