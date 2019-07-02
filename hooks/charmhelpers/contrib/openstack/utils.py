@@ -83,7 +83,8 @@ from charmhelpers.fetch import (
     add_source as fetch_add_source,
     SourceConfigError,
     GPGKeyError,
-    get_upstream_version
+    get_upstream_version,
+    filter_missing_packages
 )
 
 from charmhelpers.fetch.snap import (
@@ -119,6 +120,7 @@ OPENSTACK_RELEASES = (
     'queens',
     'rocky',
     'stein',
+    'train',
 )
 
 UBUNTU_OPENSTACK_RELEASE = OrderedDict([
@@ -138,6 +140,7 @@ UBUNTU_OPENSTACK_RELEASE = OrderedDict([
     ('bionic', 'queens'),
     ('cosmic', 'rocky'),
     ('disco', 'stein'),
+    ('eoan', 'train'),
 ])
 
 
@@ -158,6 +161,7 @@ OPENSTACK_CODENAMES = OrderedDict([
     ('2018.1', 'queens'),
     ('2018.2', 'rocky'),
     ('2019.1', 'stein'),
+    ('2019.2', 'train'),
 ])
 
 # The ugly duckling - must list releases oldest to newest
@@ -193,7 +197,9 @@ SWIFT_CODENAMES = OrderedDict([
     ('rocky',
         ['2.18.0', '2.19.0']),
     ('stein',
-        ['2.19.0']),
+        ['2.20.0', '2.21.0']),
+    ('train',
+        ['2.22.0']),
 ])
 
 # >= Liberty version->codename mapping
@@ -207,6 +213,7 @@ PACKAGE_CODENAMES = {
         ('17', 'queens'),
         ('18', 'rocky'),
         ('19', 'stein'),
+        ('20', 'train'),
     ]),
     'neutron-common': OrderedDict([
         ('7', 'liberty'),
@@ -217,6 +224,7 @@ PACKAGE_CODENAMES = {
         ('12', 'queens'),
         ('13', 'rocky'),
         ('14', 'stein'),
+        ('15', 'train'),
     ]),
     'cinder-common': OrderedDict([
         ('7', 'liberty'),
@@ -227,6 +235,7 @@ PACKAGE_CODENAMES = {
         ('12', 'queens'),
         ('13', 'rocky'),
         ('14', 'stein'),
+        ('15', 'train'),
     ]),
     'keystone': OrderedDict([
         ('8', 'liberty'),
@@ -237,6 +246,7 @@ PACKAGE_CODENAMES = {
         ('13', 'queens'),
         ('14', 'rocky'),
         ('15', 'stein'),
+        ('16', 'train'),
     ]),
     'horizon-common': OrderedDict([
         ('8', 'liberty'),
@@ -247,6 +257,7 @@ PACKAGE_CODENAMES = {
         ('13', 'queens'),
         ('14', 'rocky'),
         ('15', 'stein'),
+        ('16', 'train'),
     ]),
     'ceilometer-common': OrderedDict([
         ('5', 'liberty'),
@@ -257,6 +268,7 @@ PACKAGE_CODENAMES = {
         ('10', 'queens'),
         ('11', 'rocky'),
         ('12', 'stein'),
+        ('13', 'train'),
     ]),
     'heat-common': OrderedDict([
         ('5', 'liberty'),
@@ -267,6 +279,7 @@ PACKAGE_CODENAMES = {
         ('10', 'queens'),
         ('11', 'rocky'),
         ('12', 'stein'),
+        ('13', 'train'),
     ]),
     'glance-common': OrderedDict([
         ('11', 'liberty'),
@@ -277,6 +290,7 @@ PACKAGE_CODENAMES = {
         ('16', 'queens'),
         ('17', 'rocky'),
         ('18', 'stein'),
+        ('19', 'train'),
     ]),
     'openstack-dashboard': OrderedDict([
         ('8', 'liberty'),
@@ -287,6 +301,7 @@ PACKAGE_CODENAMES = {
         ('13', 'queens'),
         ('14', 'rocky'),
         ('15', 'stein'),
+        ('16', 'train'),
     ]),
 }
 
@@ -307,6 +322,15 @@ class CompareOpenStackReleases(BasicStringComparator):
 def error_out(msg):
     juju_log("FATAL ERROR: %s" % msg, level='ERROR')
     sys.exit(1)
+
+
+def get_installed_semantic_versioned_packages():
+    '''Get a list of installed packages which have OpenStack semantic versioning
+
+    :returns List of installed packages
+    :rtype: [pkg1, pkg2, ...]
+    '''
+    return filter_missing_packages(PACKAGE_CODENAMES.keys())
 
 
 def get_os_codename_install_source(src):
@@ -646,7 +670,7 @@ def openstack_upgrade_available(package):
     else:
         avail_vers = get_os_version_install_source(src)
     apt.init()
-    return apt.version_compare(avail_vers, cur_vers) == 1
+    return apt.version_compare(avail_vers, cur_vers) >= 1
 
 
 def ensure_block_device(block_device):
@@ -972,7 +996,9 @@ def _ows_check_charm_func(state, message, charm_func_with_configs):
     """
     if charm_func_with_configs:
         charm_state, charm_message = charm_func_with_configs()
-        if charm_state != 'active' and charm_state != 'unknown':
+        if (charm_state != 'active' and
+                charm_state != 'unknown' and
+                charm_state is not None):
             state = workload_state_compare(state, charm_state)
             if message:
                 charm_message = charm_message.replace("Incomplete relations: ",
@@ -1241,7 +1267,7 @@ def remote_restart(rel_name, remote_service=None):
 
 
 def check_actually_paused(services=None, ports=None):
-    """Check that services listed in the services object and and ports
+    """Check that services listed in the services object and ports
     are actually closed (not listened to), to verify that the unit is
     properly paused.
 

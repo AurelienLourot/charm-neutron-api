@@ -12,6 +12,6 @@ include:
     - payload.execd
     - payload.archive
     - contrib.network.ip
-    - contrib.python.packages
+    - contrib.python
     - contrib.charmsupport
     - contrib.hardening|inc=*

@@ -1,6 +1,4 @@
-#!/usr/bin/env python
-#
-# Copyright 2016 Canonical Ltd
+# Copyright 2014-2019 Canonical Limited.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Amulet tests on a basic neutron-api deployment on cosmic-rocky."""
+from __future__ import absolute_import
 
-from basic_deployment import NeutronAPIBasicDeployment
-
-if __name__ == '__main__':
-    deployment = NeutronAPIBasicDeployment(series='cosmic')
-    deployment.run_tests()
+# deprecated aliases for backwards compatibility
+from charmhelpers.fetch.python import debug  # noqa
+from charmhelpers.fetch.python import packages  # noqa
+from charmhelpers.fetch.python import rpdb  # noqa
+from charmhelpers.fetch.python import version  # noqa

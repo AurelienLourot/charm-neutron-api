@@ -49,6 +49,7 @@ TENANT_NET_TYPES = [VXLAN, GRE, VLAN, FLAT, LOCAL]
 
 EXTENSION_DRIVER_PORT_SECURITY = 'port_security'
 EXTENSION_DRIVER_DNS = 'dns'
+EXTENSION_DRIVER_DNS_DOMAIN_PORTS = 'dns_domain_ports'
 EXTENSION_DRIVER_QOS = 'qos'
 
 ETC_NEUTRON = '/etc/neutron'
@@ -244,6 +245,22 @@ def is_nsg_logging_enabled():
     return False
 
 
+def is_nfg_logging_enabled():
+    """
+    Check if Neutron firewall groups logging should be enabled.
+    """
+    if config('enable-firewall-group-logging'):
+
+        if CompareOpenStackReleases(os_release('neutron-server')) < 'stein':
+            log("The logging option is only supported on Stein or later",
+                ERROR)
+            return False
+
+        return True
+
+    return False
+
+
 def is_vlan_trunking_requested_and_valid():
     """Check whether VLAN trunking should be enabled by checking whether
        it has been requested and, if it has, is it supported in the current
@@ -407,7 +424,7 @@ class NeutronCCContext(context.NeutronContext):
         ctxt['external_network'] = config('neutron-external-network')
         release = os_release('neutron-server')
         cmp_release = CompareOpenStackReleases(release)
-        if config('neutron-plugin') in ['vsp']:
+        if config('neutron-plugin') == 'vsp' and cmp_release < 'newton':
             _config = config()
             for k, v in _config.items():
                 if k.startswith('vsd'):
@@ -484,7 +501,11 @@ class NeutronCCContext(context.NeutronContext):
         if config('enable-ml2-port-security'):
             extension_drivers.append(EXTENSION_DRIVER_PORT_SECURITY)
         if enable_dns_extension_driver:
-            extension_drivers.append(EXTENSION_DRIVER_DNS)
+            if cmp_release < 'queens':
+                extension_drivers.append(EXTENSION_DRIVER_DNS)
+            else:
+                extension_drivers.append(EXTENSION_DRIVER_DNS_DOMAIN_PORTS)
+
         if is_qos_requested_and_valid():
             extension_drivers.append(EXTENSION_DRIVER_QOS)
 
@@ -562,21 +583,25 @@ class NeutronCCContext(context.NeutronContext):
                 'rocky': ['router', 'firewall', 'metering', 'segments',
                           ('neutron_dynamic_routing.'
                            'services.bgp.bgp_plugin.BgpPlugin')],
+                'stein': ['router', 'firewall_v2', 'metering', 'segments',
+                          ('neutron_dynamic_routing.'
+                           'services.bgp.bgp_plugin.BgpPlugin')],
             }
             if cmp_release >= 'rocky':
                 if ctxt.get('load_balancer_name', None):
                     # TODO(fnordahl): Remove when ``neutron_lbaas`` is retired
-                    service_plugins['rocky'].append('lbaasv2-proxy')
+                    service_plugins[release].append('lbaasv2-proxy')
                 else:
                     # TODO(fnordahl): Remove fall-back in next charm release
-                    service_plugins['rocky'].append(
-                        'neutron_lbaas.services.loadbalancer.plugin.'
-                        'LoadBalancerPluginv2')
+                    service_plugins[release].append('lbaasv2')
+
+            if cmp_release >= 'stein':
+                ctxt['firewall_v2'] = True
 
             ctxt['service_plugins'] = service_plugins.get(
-                release, service_plugins['rocky'])
+                release, service_plugins['stein'])
 
-            if is_nsg_logging_enabled():
+            if is_nsg_logging_enabled() or is_nfg_logging_enabled():
                 ctxt['service_plugins'].append('log')
 
             if is_qos_requested_and_valid():
@@ -842,6 +867,10 @@ class NeutronAMQPContext(context.AMQPContext):
 
     def __call__(self):
         context = super(NeutronAMQPContext, self).__call__()
+        # TODO (dparv) The class to be removed in next charm release
+        # and from BASE_RESOURCE_MAP neutron_api_utils.py as well
+        if not context:
+            return context
         context['notification_topics'] = ','.join(NOTIFICATION_TOPICS)
         return context
 
@@ -866,3 +895,43 @@ class DesignateContext(context.OSContextGenerator):
                 ctxt['ipv6_ptr_zone_prefix_size'] = (
                     config('ipv6-ptr-zone-prefix-size'))
         return ctxt
+
+
+class NeutronInfobloxContext(context.OSContextGenerator):
+    '''Infoblox IPAM context for Neutron API'''
+    interfaces = ['infoblox-neutron']
+
+    def __call__(self):
+        ctxt = {}
+        rdata = {}
+        for rid in relation_ids('infoblox-neutron'):
+            if related_units(rid) and not rdata:
+                for unit in related_units(rid):
+                    rdata = relation_get(rid=rid, unit=unit)
+                    ctxt['cloud_data_center_id'] = rdata.get('dc_id')
+                    break
+        if ctxt.get('cloud_data_center_id') is not None:
+            if not self.check_requirements(rdata):
+                log('Missing Infoblox connection information, passing.')
+                return {}
+            ctxt['enable_infoblox'] = True
+            ctxt['cloud_data_center_id'] = rdata.get('dc_id')
+            ctxt['grid_master_host'] = rdata.get('grid_master_host')
+            ctxt['grid_master_name'] = rdata.get('grid_master_name')
+            ctxt['infoblox_admin_user_name'] = rdata.get('admin_user_name')
+            ctxt['infoblox_admin_password'] = rdata.get('admin_password')
+            # the next three values are non-critical and may accept defaults
+            ctxt['wapi_version'] = rdata.get('wapi_version', '2.3')
+            ctxt['wapi_max_results'] = rdata.get('wapi_max_results', '-50000')
+            ctxt['wapi_paging'] = rdata.get('wapi_paging', True)
+        return ctxt
+
+    def check_requirements(self, rdata):
+        required = [
+            'grid_master_name',
+            'grid_master_host',
+            'admin_user_name',
+            'admin_password',
+        ]
+        return len(set(p for p, v in rdata.items() if v).
+                   intersection(required)) == len(required)

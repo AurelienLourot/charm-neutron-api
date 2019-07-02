@@ -141,6 +141,7 @@ NEUTRON_VPNAAS_CONF = '%s/neutron_vpnaas.conf' % NEUTRON_CONF_DIR
 HAPROXY_CONF = '/etc/haproxy/haproxy.cfg'
 APACHE_CONF = '/etc/apache2/sites-available/openstack_https_frontend'
 APACHE_24_CONF = '/etc/apache2/sites-available/openstack_https_frontend.conf'
+APACHE_SSL_DIR = '/etc/apache2/ssl/neutron'
 NEUTRON_DEFAULT = '/etc/default/neutron-server'
 CA_CERT_PATH = '/usr/local/share/ca-certificates/keystone_juju_ca_cert.crt'
 MEMCACHED_CONF = '/etc/memcached.conf'
@@ -172,7 +173,8 @@ BASE_RESOURCE_MAP = OrderedDict([
                      context.WorkerConfigContext(),
                      context.InternalEndpointContext(),
                      context.MemcacheContext(),
-                     neutron_api_context.DesignateContext()],
+                     neutron_api_context.DesignateContext(),
+                     neutron_api_context.NeutronInfobloxContext()],
     }),
     (NEUTRON_DEFAULT, {
         'services': ['neutron-server'],
@@ -409,7 +411,7 @@ def determine_packages(source=None):
         if release == 'kilo' or cmp_release >= 'mitaka':
             packages.append('python-networking-hyperv')
 
-    if config('neutron-plugin') == 'vsp':
+    if config('neutron-plugin') == 'vsp' and cmp_release < 'newton':
         nuage_pkgs = config('nuage-packages').split()
         packages.extend(nuage_pkgs)
 
@@ -511,9 +513,13 @@ def register_configs(release=None):
 
 
 def restart_map():
-    return OrderedDict([(cfg, v['services'])
-                        for cfg, v in resource_map().items()
-                        if v['services']])
+    restart_map = OrderedDict([(cfg, v['services'])
+                               for cfg, v in resource_map().items()
+                               if v['services']])
+    if os.path.isdir(APACHE_SSL_DIR):
+        restart_map['{}/*'.format(APACHE_SSL_DIR)] = ['apache2',
+                                                      'neutron-server']
+    return restart_map
 
 
 def services():
@@ -565,12 +571,59 @@ def do_openstack_upgrade(configs):
 
     # set CONFIGS to load templates from new release
     configs.set_release(openstack_release=new_os_rel)
+    # write all configurations for any new parts required for
+    # the new release.
+    configs.write_all()
     # Before kilo it's nova-cloud-controllers job
     if is_elected_leader(CLUSTER_RES):
         # Stamping seems broken and unnecessary in liberty (Bug #1536675)
         if CompareOpenStackReleases(os_release('neutron-common')) < 'liberty':
             stamp_neutron_database(cur_os_rel)
         migrate_neutron_database(upgrade=True)
+        if CompareOpenStackReleases(new_os_rel) >= 'stein':
+            fwaas_migrate_v1_to_v2()
+
+
+# TODO: make an attribute of the context for shared usage
+def get_db_url():
+    '''
+    Retrieve the Database URL for the Neutron DB
+
+    :returns: oslo.db formatted connection string for the DB
+    :rtype: str
+    '''
+    ctxt = context.SharedDBContext(
+        user=config('database-user'),
+        database=config('database'),
+        ssl_dir=NEUTRON_CONF_DIR)()
+    # NOTE: core database url
+    database_url = (
+        "{database_type}://"
+        "{database_user}:{database_password}@"
+        "{database_host}/{database}".format(**ctxt)
+    )
+    # NOTE: optional SSL configuration
+    if ctxt.get('database_ssl_ca'):
+        ssl_args = [
+            'ssl_ca={}'.format(ctxt['database_ssl_ca'])
+        ]
+        if ctxt.get('database_ssl_cert'):
+            ssl_args.append('ssl_cert={}'.format(ctxt['database_ssl_cert']))
+            ssl_args.append('ssl_key={}'.format(ctxt['database_ssl_key']))
+        database_url = "{}?{}".format(
+            database_url,
+            "&".join(ssl_args)
+        )
+    return database_url
+
+
+def fwaas_migrate_v1_to_v2():
+    '''Migrate any existing v1 firewall definitions to v2'''
+    cmd = [
+        'neutron-fwaas-migrate-v1-to-v2',
+        '--neutron-db-connection={}'.format(get_db_url())
+    ]
+    subprocess.check_call(cmd)
 
 
 def stamp_neutron_database(release):
