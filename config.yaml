@@ -747,3 +747,7 @@ options:
     description: |
       Sets the resource type used in weight calculations during
       AZ-aware scheduling (networks, subnets or ports).
+  enable-arista:
+    type: boolean
+    default: False
+    description: Enable arista mechanism driver.

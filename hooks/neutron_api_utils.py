@@ -489,6 +489,9 @@ def resource_map(release=None):
             resource_map[ML2_SRIOV_INI] = {}
             resource_map[ML2_SRIOV_INI]['services'] = services
             resource_map[ML2_SRIOV_INI]['contexts'] = []
+        if (config('enable-arista')):
+            resource_map[NEUTRON_DEFAULT]['contexts'] = \
+                [neutron_api_context.NeutronApiSDNConfigFileContext()]
     else:
         resource_map[NEUTRON_CONF]['contexts'].append(
             neutron_api_context.NeutronApiSDNContext()

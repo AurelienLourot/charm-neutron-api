@@ -201,6 +201,10 @@ def get_ml2_mechanism_drivers():
 
     if (config('enable-sriov') and cmp_release >= 'kilo'):
         mechanism_drivers.append('sriovnicswitch')
+
+    if config('enable-arista'):
+        mechanism_drivers.append('arista')
+
     return ','.join(mechanism_drivers)
 
 
