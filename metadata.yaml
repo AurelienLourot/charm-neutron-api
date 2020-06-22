@@ -1,4 +1,4 @@
-name: neutron-api
+name: neutron-api-arista-test-fixture
 summary: OpenStack Networking API service
 maintainer: OpenStack Charmers <openstack-charmers@lists.ubuntu.com>
 description: |
